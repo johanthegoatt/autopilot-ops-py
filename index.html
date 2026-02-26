@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Autopilot Ops Planner</title>
+    <meta
+      name="description"
+      content="Autopilot Ops is a Python-powered planner that ranks engineering tasks and builds budget-aware weekly plans."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero panel">
+        <p class="kicker">Autopilot Ops</p>
+        <h1>Weekly Leverage Planner</h1>
+        <p class="subtitle">
+          Rank engineering tasks by impact, urgency, confidence, and effort, then generate a budget-constrained weekly
+          execution plan.
+        </p>
+      </header>
+
+      <section class="panel controls">
+        <h2>Planner Controls</h2>
+        <div class="control-grid">
+          <label>
+            Budget
+            <input id="budget-input" type="number" min="0" step="0.1" value="18" />
+          </label>
+          <label>
+            Top N
+            <input id="top-input" type="number" min="0" step="1" value="0" />
+          </label>
+          <label>
+            Min Score
+            <input id="min-score-input" type="number" step="0.1" value="0" />
+          </label>
+          <label>
+            Strategy
+            <select id="strategy-input">
+              <option value="balanced">Balanced</option>
+              <option value="impact">Impact</option>
+              <option value="urgency">Urgency</option>
+            </select>
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="load-sample-btn" type="button">Load Sample Tasks</button>
+          <button id="generate-btn" type="button" class="primary">Generate Plan</button>
+        </div>
+        <p id="status-text" class="status" aria-live="polite"></p>
+      </section>
+
+      <section class="work-grid">
+        <article class="panel">
+          <div class="section-head">
+            <h2>Task Form</h2>
+            <div class="button-row compact">
+              <button id="add-task-btn" type="button">Add Task</button>
+              <button id="clear-tasks-btn" type="button">Clear</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Project</th>
+                  <th>Task</th>
+                  <th>Impact</th>
+                  <th>Urgency</th>
+                  <th>Confidence</th>
+                  <th>Effort</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="task-table-body"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="section-head">
+            <h2>Tasks JSON</h2>
+            <div class="button-row compact">
+              <button id="form-to-json-btn" type="button">Form to JSON</button>
+              <button id="json-to-form-btn" type="button">JSON to Form</button>
+            </div>
+          </div>
+          <textarea
+            id="tasks-json"
+            rows="16"
+            spellcheck="false"
+            placeholder='[{"project":"portfolio","task":"Polish hero copy","impact":8.2,"urgency":7.5,"confidence":0.9,"effort":3.0}]'
+          ></textarea>
+        </article>
+      </section>
+
+      <section class="panel">
+        <h2>Plan Output</h2>
+        <div class="metrics">
+          <p><span>Budget:</span> <strong id="metric-budget">-</strong></p>
+          <p><span>Used Effort:</span> <strong id="metric-used">-</strong></p>
+          <p><span>Strategy:</span> <strong id="metric-strategy">-</strong></p>
+          <p><span>Ranked Tasks:</span> <strong id="metric-ranked">-</strong></p>
+        </div>
+
+        <h3>Ranked Tasks</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Project</th>
+                <th>Task</th>
+                <th>Score</th>
+                <th>Impact</th>
+                <th>Urgency</th>
+                <th>Confidence</th>
+                <th>Effort</th>
+              </tr>
+            </thead>
+            <tbody id="ranked-table-body"></tbody>
+          </table>
+        </div>
+
+        <h3>Weekly Plan</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Project</th>
+                <th>Task</th>
+                <th>Score</th>
+                <th>Effort</th>
+              </tr>
+            </thead>
+            <tbody id="weekly-table-body"></tbody>
+          </table>
+        </div>
+
+        <h3>Raw Response</h3>
+        <pre id="response-json"><code>No plan generated yet.</code></pre>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

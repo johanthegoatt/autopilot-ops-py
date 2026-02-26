@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.vercel/
+.env*.local
+data/plan.out.json
+
+.vercel
+.env*.local

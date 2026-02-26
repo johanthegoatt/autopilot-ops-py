@@ -1,0 +1,35 @@
+[
+  {
+    "project": "portfolio",
+    "task": "Refine project storytelling and visuals",
+    "impact": 9.2,
+    "urgency": 7.8,
+    "confidence": 0.9,
+    "effort": 4.5
+  },
+  {
+    "project": "timecapsule-vault",
+    "task": "Add key rotation support",
+    "impact": 8.8,
+    "urgency": 8.2,
+    "confidence": 0.78,
+    "effort": 6.0
+  },
+  {
+    "project": "globe-control",
+    "task": "Streamline camera start/stop reliability",
+    "impact": 8.1,
+    "urgency": 7.0,
+    "confidence": 0.84,
+    "effort": 3.2
+  },
+  {
+    "project": "workflow-cli-kit",
+    "task": "Add runbook lint command",
+    "impact": 7.4,
+    "urgency": 6.9,
+    "confidence": 0.95,
+    "effort": 2.8
+  }
+]
+

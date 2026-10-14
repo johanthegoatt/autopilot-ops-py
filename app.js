@@ -248,20 +248,49 @@ async function generatePlan() {
     elements.tasksJson.value = JSON.stringify(tasks, null, 2);
     setStatus("Generating plan...", "");
 
-    const response = await fetch("/api/plan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
+    // The Python service is authoritative when it is there. On a static host
+    // it is not, so a failed request falls through to the identical planner
+    // compiled into the page rather than showing the user a 404. Both produce
+    // the same payload shape, so nothing downstream has to care which ran.
+    let payload = null;
+    let ranOnServer = false;
 
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const detail = payload?.error || payload?.detail || `Request failed with status ${response.status}.`;
-      throw new Error(detail);
+    try {
+      const response = await fetch("/api/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+
+      const parsed = await response.json().catch(() => ({}));
+      if (response.ok) {
+        payload = parsed;
+        ranOnServer = true;
+      } else if (response.status >= 400 && response.status < 500 && response.status !== 404) {
+        // A 4xx that is not "no such endpoint" means the service rejected this
+        // input. Computing it locally would hide a real validation error.
+        throw new Error(parsed?.error || parsed?.detail || `Request failed with status ${response.status}.`);
+      }
+    } catch (networkError) {
+      if (networkError instanceof Error && networkError.message.startsWith("Request failed")) {
+        throw networkError;
+      }
+      // Offline, blocked, or no service. Fall through.
+    }
+
+    if (!payload) {
+      if (!window.AutopilotPlanner) {
+        throw new Error("No planner available: the API is unreachable and the local planner did not load.");
+      }
+      payload = window.AutopilotPlanner.planLocally(body);
     }
 
     renderPlan(payload);
-    setStatus(`Plan generated. Ranked ${payload.ranked.length} task(s).`, "success");
+    setStatus(
+      `Plan generated ${ranOnServer ? "by the service" : "in your browser"}. `
+      + `Ranked ${payload.ranked.length} task(s).`,
+      "success"
+    );
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Could not generate plan.", "error");
   }

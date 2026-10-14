@@ -4,9 +4,11 @@ from tempfile import TemporaryDirectory
 
 from src.autopilot_ops import (
     TaskSignal,
+    build_plan_payload,
     build_weekly_plan,
     filter_ranked_tasks,
     leverage_score,
+    parse_task_payload,
     parse_tasks,
     rank_tasks,
 )
@@ -64,6 +66,32 @@ class AutopilotOpsTests(unittest.TestCase):
         impact_score_urgency_mode = leverage_score(impact_heavy, strategy="urgency")
         urgency_score_urgency_mode = leverage_score(urgency_heavy, strategy="urgency")
         self.assertGreater(urgency_score_urgency_mode, impact_score_urgency_mode)
+
+    def _row(self, **overrides):
+        row = {"project": "p", "task": "t", "impact": 5, "urgency": 5, "confidence": 0.8, "effort": 2}
+        row.update(overrides)
+        return row
+
+    def test_parse_rejects_nan_infinity_and_negative_values(self):
+        for field, value in (("impact", "nan"), ("urgency", "inf"), ("effort", -1), ("impact", "lots")):
+            with self.subTest(field=field, value=value):
+                with self.assertRaises(ValueError) as caught:
+                    parse_task_payload([self._row(**{field: value})])
+                self.assertIn(field, str(caught.exception))
+
+    def test_confidence_accepts_a_percent(self):
+        fraction, percent = parse_task_payload([self._row(confidence=0.8), self._row(confidence=80)])
+        self.assertAlmostEqual(fraction.confidence, 0.8)
+        self.assertAlmostEqual(percent.confidence, 0.8)
+        self.assertEqual(leverage_score(fraction), leverage_score(percent))
+        with self.assertRaises(ValueError):
+            parse_task_payload([self._row(confidence=150)])
+
+    def test_used_effort_counts_the_floor_the_packer_used(self):
+        tasks = parse_task_payload([self._row(task=f"t{i}", effort=0) for i in range(4)])
+        payload = build_plan_payload(tasks, effort_budget=1.0)
+        self.assertEqual(len(payload["weeklyPlan"]), 4)
+        self.assertEqual(payload["usedEffort"], 1.0)
 
 
 if __name__ == "__main__":

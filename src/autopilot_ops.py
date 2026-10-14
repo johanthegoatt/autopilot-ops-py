@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
@@ -85,6 +86,33 @@ def _require(item: dict, field: str, index: int) -> object:
     return item[field]
 
 
+def _number(item: dict, field: str, index: int) -> float:
+    # float() accepts "nan" and "inf". A NaN score compares false against
+    # everything, so one bad row silently scrambles the whole ranking.
+    try:
+        value = float(item[field])
+    except (TypeError, ValueError):
+        raise ValueError(f"Task at index {index}: '{field}' must be a number.") from None
+    if not math.isfinite(value):
+        raise ValueError(f"Task at index {index}: '{field}' must be a finite number.")
+    if value < 0:
+        raise ValueError(f"Task at index {index}: '{field}' cannot be negative.")
+    return value
+
+
+def _confidence(item: dict, index: int) -> float:
+    # RICE writes confidence as a percentage (100%, 80%, 50%), so people type
+    # 80 as often as 0.8. Up to 1 is a fraction, up to 100 is a percent.
+    value = _number(item, "confidence", index)
+    if value <= 1.0:
+        return value
+    if value <= 100.0:
+        return value / 100.0
+    raise ValueError(
+        f"Task at index {index}: 'confidence' must be a fraction (0.8) or a percent (80)."
+    )
+
+
 def parse_tasks(path: Path) -> List[TaskSignal]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     return parse_task_payload(raw)
@@ -106,10 +134,10 @@ def parse_task_payload(raw: object) -> List[TaskSignal]:
             TaskSignal(
                 project=str(item["project"]).strip(),
                 task=str(item["task"]).strip(),
-                impact=float(item["impact"]),
-                urgency=float(item["urgency"]),
-                confidence=float(item["confidence"]),
-                effort=float(item["effort"]),
+                impact=_number(item, "impact", index),
+                urgency=_number(item, "urgency", index),
+                confidence=_confidence(item, index),
+                effort=_number(item, "effort", index),
             )
         )
 
@@ -146,7 +174,9 @@ def build_plan_payload(
             {**asdict(task), "score": round(leverage_score(task, strategy=strategy), 4)}
             for task in weekly_plan
         ],
-        "usedEffort": round(sum(task.effort for task in weekly_plan), 2),
+        # Count effort the way the packer did, floor included, or a plan of
+        # zero-effort tasks reports 0 used while it has spent the budget.
+        "usedEffort": round(sum(_normalized_effort(task.effort) for task in weekly_plan), 2),
     }
 
 

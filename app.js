@@ -55,7 +55,19 @@ function parseNumber(value, fieldName, rowNumber) {
   if (!Number.isFinite(parsed)) {
     throw new Error(`Row ${rowNumber}: ${fieldName} must be a valid number.`);
   }
+  if (parsed < 0) {
+    throw new Error(`Row ${rowNumber}: ${fieldName} cannot be negative.`);
+  }
   return parsed;
+}
+
+// Same rule as _confidence in src/autopilot_ops.py: RICE writes confidence as
+// a percent, so 80 means 0.8. Anything over 100 is a typo, not a percent.
+function parseConfidence(value, rowNumber) {
+  const parsed = parseNumber(value, "confidence", rowNumber);
+  if (parsed <= 1) return parsed;
+  if (parsed <= 100) return parsed / 100;
+  throw new Error(`Row ${rowNumber}: confidence must be a fraction (0.8) or a percent (80).`);
 }
 
 function normalizeTask(task, index) {
@@ -84,7 +96,7 @@ function normalizeTask(task, index) {
     task: taskName,
     impact: parseNumber(task.impact, "impact", rowNumber),
     urgency: parseNumber(task.urgency, "urgency", rowNumber),
-    confidence: parseNumber(task.confidence, "confidence", rowNumber),
+    confidence: parseConfidence(task.confidence, rowNumber),
     effort: parseNumber(task.effort, "effort", rowNumber)
   };
 }
@@ -108,7 +120,7 @@ function buildRow(task = emptyTask()) {
     <td><input data-key="task" type="text" value="${escapeHtml(task.task)}" placeholder="Refine docs" /></td>
     <td><input data-key="impact" type="number" step="0.1" value="${escapeHtml(task.impact)}" /></td>
     <td><input data-key="urgency" type="number" step="0.1" value="${escapeHtml(task.urgency)}" /></td>
-    <td><input data-key="confidence" type="number" step="0.01" value="${escapeHtml(task.confidence)}" /></td>
+    <td><input data-key="confidence" type="number" step="0.01" min="0" max="100" value="${escapeHtml(task.confidence)}" /></td>
     <td><input data-key="effort" type="number" step="0.1" value="${escapeHtml(task.effort)}" /></td>
     <td><button class="row-action" type="button" data-remove-task="1">Remove</button></td>
   `;

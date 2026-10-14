@@ -20,6 +20,7 @@ class TaskSignal:
 
 REQUIRED_FIELDS = ("project", "task", "impact", "urgency", "confidence", "effort")
 VALID_STRATEGIES = ("balanced", "impact", "urgency")
+VALID_PACKINGS = ("optimal", "greedy")
 
 
 def _clamp_confidence(value: float) -> float:
@@ -64,20 +65,96 @@ def filter_ranked_tasks(
     return selected
 
 
-def build_weekly_plan(
-    tasks: Iterable[TaskSignal], effort_budget: float, strategy: str = "balanced"
-) -> List[TaskSignal]:
-    ranked = rank_tasks(tasks, strategy=strategy)
+def task_value(task: TaskSignal, strategy: str = "balanced") -> float:
+    """What finishing the task is worth: the score before it is divided by effort."""
+    return leverage_score(task, strategy=strategy) * _normalized_effort(task.effort)
+
+
+# Efforts are packed on a grid of hundredths, rounded up so a plan can never
+# overrun the budget. Past this many table cells the exact packer would get
+# slow in Python, so it falls back to greedy and says so in the payload.
+EFFORT_STEP = 0.01
+MAX_DP_CELLS = 1_000_000
+
+
+def _units(effort: float) -> int:
+    return int(math.ceil(effort / EFFORT_STEP - 1e-9))
+
+
+def _capacity(effort_budget: float) -> int:
+    return int(math.floor(max(effort_budget, 0.0) / EFFORT_STEP + 1e-9))
+
+
+def _greedy_plan(ranked: List[TaskSignal], effort_budget: float) -> List[TaskSignal]:
     selected: List[TaskSignal] = []
     used_effort = 0.0
-    safe_budget = max(effort_budget, 0.0)
     for task in ranked:
         effort = _normalized_effort(task.effort)
-        if used_effort + effort > safe_budget:
+        if used_effort + effort > effort_budget:
             continue
         selected.append(task)
         used_effort += effort
     return selected
+
+
+def _optimal_plan(ranked: List[TaskSignal], effort_budget: float, strategy: str) -> List[TaskSignal]:
+    # 0/1 knapsack by dynamic programming: best[c] is the most value that fits
+    # in c units of effort. keep[i] records which capacities took task i, so
+    # the chosen set can be read back from the last task to the first.
+    capacity = _capacity(effort_budget)
+    best = [0.0] * (capacity + 1)
+    keep: List[bytearray] = []
+    for task in ranked:
+        weight = _units(_normalized_effort(task.effort))
+        value = task_value(task, strategy)
+        took = bytearray(capacity + 1)
+        for c in range(capacity, weight - 1, -1):
+            candidate = best[c - weight] + value
+            # Only a strictly better total replaces the current one, so equal
+            # plans resolve the same way on every run and in the browser port.
+            if candidate > best[c] + 1e-9:
+                best[c] = candidate
+                took[c] = 1
+        keep.append(took)
+
+    chosen: List[TaskSignal] = []
+    c = capacity
+    for index in range(len(ranked) - 1, -1, -1):
+        if keep[index][c]:
+            chosen.append(ranked[index])
+            c -= _units(_normalized_effort(ranked[index].effort))
+    chosen.reverse()
+    return chosen
+
+
+def plan_packing(task_count: int, effort_budget: float, packing: str = "optimal") -> str:
+    """Which packer will run: optimal unless greedy was asked for or the table is too big."""
+    if packing not in VALID_PACKINGS:
+        raise ValueError(f"Unknown packing '{packing}'. Valid packings: {', '.join(VALID_PACKINGS)}")
+    if packing == "greedy":
+        return "greedy"
+    cells = task_count * (_capacity(effort_budget) + 1)
+    return "optimal" if cells <= MAX_DP_CELLS else "greedy"
+
+
+def build_weekly_plan(
+    tasks: Iterable[TaskSignal],
+    effort_budget: float,
+    strategy: str = "balanced",
+    packing: str = "optimal",
+) -> List[TaskSignal]:
+    """Pick the tasks that fit the budget, returned in rank order.
+
+    Taking tasks in score order (the old behaviour) is Dantzig's 1957 greedy
+    rule and can leave value on the table: with 10 hours, one 6 hour task
+    worth 1.17 an hour goes first, but two 5 hour tasks worth 1.10 an hour
+    are worth 11 together against 7. The optimal packer maximises the total.
+    """
+    ranked = rank_tasks(tasks, strategy=strategy)
+    safe_budget = max(effort_budget, 0.0)
+    if plan_packing(len(ranked), safe_budget, packing) == "greedy":
+        return _greedy_plan(ranked, safe_budget)
+    return _optimal_plan(ranked, safe_budget, strategy)
 
 
 def _require(item: dict, field: str, index: int) -> object:
@@ -153,6 +230,7 @@ def build_plan_payload(
     top: int = 0,
     min_score: float = 0.0,
     strategy: str = "balanced",
+    packing: str = "optimal",
 ) -> Dict[str, Any]:
     if strategy not in VALID_STRATEGIES:
         raise ValueError(f"Unknown strategy '{strategy}'. Valid strategies: {', '.join(VALID_STRATEGIES)}")
@@ -161,11 +239,13 @@ def build_plan_payload(
     filtered = filter_ranked_tasks(
         ranked, min_score=min_score, top=top, strategy=strategy
     )
-    weekly_plan = build_weekly_plan(filtered, effort_budget, strategy=strategy)
+    packing_used = plan_packing(len(filtered), effort_budget, packing)
+    weekly_plan = build_weekly_plan(filtered, effort_budget, strategy=strategy, packing=packing_used)
 
     return {
         "budget": effort_budget,
         "filters": {"top": top, "minScore": min_score, "strategy": strategy},
+        "packing": packing_used,
         "ranked": [
             {**asdict(task), "score": round(leverage_score(task, strategy=strategy), 4)}
             for task in filtered
@@ -177,6 +257,7 @@ def build_plan_payload(
         # Count effort the way the packer did, floor included, or a plan of
         # zero-effort tasks reports 0 used while it has spent the budget.
         "usedEffort": round(sum(_normalized_effort(task.effort) for task in weekly_plan), 2),
+        "planValue": round(sum(task_value(task, strategy) for task in weekly_plan), 4),
     }
 
 
@@ -193,6 +274,12 @@ def main() -> int:
         choices=VALID_STRATEGIES,
         help="Scoring strategy: balanced, impact, or urgency",
     )
+    parser.add_argument(
+        "--packing",
+        default="optimal",
+        choices=VALID_PACKINGS,
+        help="optimal fits the most value into the budget, greedy takes tasks in score order",
+    )
     args = parser.parse_args()
 
     tasks = parse_tasks(Path(args.input))
@@ -202,6 +289,7 @@ def main() -> int:
         top=args.top,
         min_score=args.min_score,
         strategy=args.strategy,
+        packing=args.packing,
     )
 
     text = json.dumps(payload, indent=2)

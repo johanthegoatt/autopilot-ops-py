@@ -78,34 +78,94 @@
     return top > 0 ? kept.slice(0, top) : kept;
   }
   
-  /**
-   * Python: build_weekly_plan.
-   *
-   * Greedy by score, skipping anything that does not fit rather than stopping at
-   * the first thing that does not. A cheap high-scoring task after an expensive
-   * one still gets in, which is the whole point of packing against a budget.
-   */
-  function buildWeeklyPlan(tasks, budget, strategy = "balanced") {
-    const ranked = rankTasks(tasks, strategy);
-    const safeBudget = Math.max(Number(budget) || 0, 0);
+  /** Python: task_value. The score before it is divided by effort. */
+  function taskValue(task, strategy = "balanced") {
+    return leverageScore(task, strategy) * normalizedEffort(task.effort);
+  }
+
+  /* Python: EFFORT_STEP and MAX_DP_CELLS. Kept equal so both sides switch to
+     greedy at the same size and pick the same plan below it. */
+  const EFFORT_STEP = 0.01;
+  const MAX_DP_CELLS = 1000000;
+  const VALID_PACKINGS = ["optimal", "greedy"];
+
+  const units = effort => Math.ceil(effort / EFFORT_STEP - 1e-9);
+  const capacityOf = budget => Math.floor(Math.max(Number(budget) || 0, 0) / EFFORT_STEP + 1e-9);
+
+  /** Python: plan_packing */
+  function planPacking(taskCount, budget, packing = "optimal") {
+    if (packing === "greedy") return "greedy";
+    return taskCount * (capacityOf(budget) + 1) <= MAX_DP_CELLS ? "optimal" : "greedy";
+  }
+
+  /** Python: _greedy_plan. Score order, skipping whatever does not fit. */
+  function greedyPlan(ranked, budget) {
     const selected = [];
     let used = 0;
-  
     for (const task of ranked) {
       const effort = normalizedEffort(task.effort);
-      if (used + effort > safeBudget) continue;
+      if (used + effort > budget) continue;
       selected.push(task);
       used += effort;
     }
+    return selected;
+  }
+
+  /**
+   * Python: _optimal_plan. 0/1 knapsack over hundredths of effort; best[c] is
+   * the most value that fits in c units, keep[i] which capacities took task i.
+   * Same loop order and the same strict comparison as the Python, so ties
+   * resolve to the same plan in both.
+   */
+  function optimalPlan(ranked, budget, strategy) {
+    const capacity = capacityOf(budget);
+    const best = new Float64Array(capacity + 1);
+    const keep = [];
+    for (const task of ranked) {
+      const weight = units(normalizedEffort(task.effort));
+      const value = taskValue(task, strategy);
+      const took = new Uint8Array(capacity + 1);
+      for (let c = capacity; c >= weight; c--) {
+        const candidate = best[c - weight] + value;
+        if (candidate > best[c] + 1e-9) {
+          best[c] = candidate;
+          took[c] = 1;
+        }
+      }
+      keep.push(took);
+    }
+    const chosen = [];
+    let c = capacity;
+    for (let i = ranked.length - 1; i >= 0; i--) {
+      if (keep[i][c]) {
+        chosen.push(ranked[i]);
+        c -= units(normalizedEffort(ranked[i].effort));
+      }
+    }
+    return chosen.reverse();
+  }
+
+  /**
+   * Python: build_weekly_plan. Returns the tasks in rank order plus the
+   * effort they use, counted with the same floor the packer used.
+   */
+  function buildWeeklyPlan(tasks, budget, strategy = "balanced", packing = "optimal") {
+    const ranked = rankTasks(tasks, strategy);
+    const safeBudget = Math.max(Number(budget) || 0, 0);
+    const selected = planPacking(ranked.length, safeBudget, packing) === "greedy"
+      ? greedyPlan(ranked, safeBudget)
+      : optimalPlan(ranked, safeBudget, strategy);
+    const used = selected.reduce((n, t) => n + normalizedEffort(t.effort), 0);
     return { selected, used };
   }
-  
+
   /**
    * Builds the same payload shape /api/plan returns, so the renderer does not
    * need to know which one produced it.
    */
-  function planLocally({ tasks, budget, top, minScore, strategy }) {
+  function planLocally({ tasks, budget, top, minScore, strategy, packing }) {
     const useStrategy = VALID_STRATEGIES.includes(strategy) ? strategy : "balanced";
+    const usePacking = VALID_PACKINGS.includes(packing) ? packing : "optimal";
   
     const withScores = t => ({ ...t, score: leverageScore(t, useStrategy) });
   
@@ -115,17 +175,22 @@
       strategy: useStrategy
     }).map(withScores);
   
-    const { selected, used } = buildWeeklyPlan(ranked, budget, useStrategy);
+    const packingUsed = planPacking(ranked.length, budget, usePacking);
+    const { selected, used } = buildWeeklyPlan(ranked, budget, useStrategy, packingUsed);
   
     return {
       budget: Number(budget) || 0,
-      usedEffort: Number(used.toFixed(4)),
+      usedEffort: Number(used.toFixed(2)),
+      planValue: Number(selected.reduce((n, t) => n + taskValue(t, useStrategy), 0).toFixed(4)),
       filters: { strategy: useStrategy, top: Number(top) || 0, minScore: Number(minScore) || 0 },
+      packing: packingUsed,
       ranked,
       weeklyPlan: selected.map(withScores),
       computedIn: "browser"
     };
   }
 
-  global.AutopilotPlanner = { leverageScore, rankTasks, filterRanked, buildWeeklyPlan, planLocally };
+  global.AutopilotPlanner = {
+    leverageScore, taskValue, rankTasks, filterRanked, planPacking, buildWeeklyPlan, planLocally
+  };
 })(window);

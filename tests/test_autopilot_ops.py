@@ -11,6 +11,7 @@ from src.autopilot_ops import (
     parse_task_payload,
     parse_tasks,
     rank_tasks,
+    task_value,
 )
 
 
@@ -92,6 +93,49 @@ class AutopilotOpsTests(unittest.TestCase):
         payload = build_plan_payload(tasks, effort_budget=1.0)
         self.assertEqual(len(payload["weeklyPlan"]), 4)
         self.assertEqual(payload["usedEffort"], 1.0)
+
+    def test_optimal_packing_beats_greedy_on_the_dantzig_counterexample(self):
+        # Balanced weights: 1.8 * impact + 1.2 * urgency, so x and x gives 3x.
+        big = TaskSignal("a", "one big task", 7 / 3, 7 / 3, 1.0, 6.0)
+        half_1 = TaskSignal("b", "first half", 5.5 / 3, 5.5 / 3, 1.0, 5.0)
+        half_2 = TaskSignal("c", "second half", 5.5 / 3, 5.5 / 3, 1.0, 5.0)
+        tasks = [big, half_1, half_2]
+
+        greedy = build_weekly_plan(tasks, 10.0, packing="greedy")
+        optimal = build_weekly_plan(tasks, 10.0)
+        self.assertEqual([t.project for t in greedy], ["a"])
+        self.assertEqual([t.project for t in optimal], ["b", "c"])
+
+        payload = build_plan_payload(tasks, effort_budget=10.0)
+        self.assertEqual(payload["packing"], "optimal")
+        self.assertAlmostEqual(payload["planValue"], 11.0)
+        self.assertEqual(payload["usedEffort"], 10.0)
+
+    def test_optimal_packing_matches_brute_force(self):
+        import itertools
+        import random
+
+        rng = random.Random(7)
+        for _ in range(60):
+            tasks = [
+                TaskSignal("p", f"t{i}", rng.uniform(1, 10), rng.uniform(1, 10),
+                           rng.uniform(0.3, 1), round(rng.uniform(0.25, 8), 2))
+                for i in range(rng.randint(1, 8))
+            ]
+            budget = round(rng.uniform(0, 20), 2)
+            best = 0.0
+            for r in range(len(tasks) + 1):
+                for combo in itertools.combinations(tasks, r):
+                    if sum(t.effort for t in combo) <= budget + 1e-9:
+                        best = max(best, sum(task_value(t) for t in combo))
+            plan = build_weekly_plan(tasks, budget)
+            self.assertLessEqual(sum(t.effort for t in plan), budget + 1e-9)
+            self.assertAlmostEqual(sum(task_value(t) for t in plan), best, places=6)
+
+    def test_huge_budgets_fall_back_to_greedy_and_say_so(self):
+        payload = build_plan_payload(self.tasks, effort_budget=10_000_000.0)
+        self.assertEqual(payload["packing"], "greedy")
+        self.assertEqual(len(payload["weeklyPlan"]), 3)
 
 
 if __name__ == "__main__":

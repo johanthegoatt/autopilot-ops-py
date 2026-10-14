@@ -1,6 +1,6 @@
 [project]
 name = "autopilot-ops-py"
-version = "0.3.0"
+version = "0.4.0"
 description = "Productivity planning toolkit for ranking engineering work."
 requires-python = ">=3.9"
 dependencies = [

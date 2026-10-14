@@ -7,6 +7,7 @@ const elements = {
   top: document.getElementById("top-input"),
   minScore: document.getElementById("min-score-input"),
   strategy: document.getElementById("strategy-input"),
+  packing: document.getElementById("packing-input"),
   loadSample: document.getElementById("load-sample-btn"),
   generate: document.getElementById("generate-btn"),
   addTask: document.getElementById("add-task-btn"),
@@ -18,11 +19,14 @@ const elements = {
   taskBody: document.getElementById("task-table-body"),
   rankedBody: document.getElementById("ranked-table-body"),
   weeklyBody: document.getElementById("weekly-table-body"),
+  leftOutBody: document.getElementById("left-out-table-body"),
   responseJson: document.getElementById("response-json").querySelector("code"),
   metricBudget: document.getElementById("metric-budget"),
   metricUsed: document.getElementById("metric-used"),
   metricStrategy: document.getElementById("metric-strategy"),
-  metricRanked: document.getElementById("metric-ranked")
+  metricRanked: document.getElementById("metric-ranked"),
+  metricValue: document.getElementById("metric-value"),
+  metricLeft: document.getElementById("metric-left")
 };
 
 function setStatus(message, type = "") {
@@ -183,6 +187,7 @@ function parsePlannerSettings() {
   const top = Number(elements.top.value);
   const minScore = Number(elements.minScore.value);
   const strategy = String(elements.strategy.value || "").trim();
+  const packing = elements.packing.value === "greedy" ? "greedy" : "optimal";
 
   if (!Number.isFinite(budget)) {
     throw new Error("Budget must be a valid number.");
@@ -197,7 +202,7 @@ function parsePlannerSettings() {
     throw new Error("Strategy must be balanced, impact, or urgency.");
   }
 
-  return { budget, top, minScore, strategy };
+  return { budget, top, minScore, strategy, packing };
 }
 
 function renderRows(targetBody, rows, fields) {
@@ -216,11 +221,58 @@ function renderRows(targetBody, rows, fields) {
   }
 }
 
-function renderPlan(payload) {
+const taskKey = (task) => `${task.project}\u0000${task.task}`;
+
+// Says why each submitted task is missing from the weekly plan, using the
+// same three cuts the planner makes: min score, top N, then the budget.
+function leftOutRows(submitted, payload) {
+  const count = (rows) => {
+    const counts = new Map();
+    for (const row of rows || []) counts.set(taskKey(row), (counts.get(taskKey(row)) || 0) + 1);
+    return counts;
+  };
+  const ranked = count(payload.ranked);
+  const planned = count(payload.weeklyPlan);
+  const minScore = Number(payload.filters?.minScore) || 0;
+  const left = Math.max((Number(payload.budget) || 0) - (Number(payload.usedEffort) || 0), 0);
+  const rows = [];
+
+  for (const task of submitted) {
+    const key = taskKey(task);
+    if (planned.get(key) > 0) {
+      planned.set(key, planned.get(key) - 1);
+      ranked.set(key, ranked.get(key) - 1);
+      continue;
+    }
+    let why;
+    if (ranked.get(key) > 0) {
+      ranked.set(key, ranked.get(key) - 1);
+      const needs = Math.max(Number(task.effort) || 0, 0.25);
+      why = needs > left
+        ? `Needs ${needs} effort, ${Number(left.toFixed(2))} left`
+        : "A higher value mix used the budget";
+    } else {
+      const score = window.AutopilotPlanner
+        ? window.AutopilotPlanner.leverageScore(task, payload.filters?.strategy)
+        : NaN;
+      why = score < minScore ? `Score ${score.toFixed(2)} is under your minimum` : "Outside your top N";
+    }
+    rows.push({ project: task.project, task: task.task, effort: task.effort, why });
+  }
+  return rows;
+}
+
+function renderPlan(payload, submitted = []) {
   elements.metricBudget.textContent = String(payload.budget ?? "-");
   elements.metricUsed.textContent = String(payload.usedEffort ?? "-");
   elements.metricStrategy.textContent = String(payload.filters?.strategy ?? "-");
   elements.metricRanked.textContent = String(payload.ranked?.length ?? 0);
+  elements.metricValue.textContent = payload.planValue == null
+    ? "-"
+    : `${Number(payload.planValue).toFixed(2)} (${payload.packing === "greedy" ? "best score first" : "most value"})`;
+  elements.metricLeft.textContent = String(
+    Number(Math.max((Number(payload.budget) || 0) - (Number(payload.usedEffort) || 0), 0).toFixed(2))
+  );
 
   const rankedRows = (payload.ranked || []).map((item) => ({
     ...item,
@@ -241,6 +293,7 @@ function renderPlan(payload) {
     "effort"
   ]);
   renderRows(elements.weeklyBody, weeklyRows, ["project", "task", "score", "effort"]);
+  renderRows(elements.leftOutBody, leftOutRows(submitted, payload), ["project", "task", "effort", "why"]);
 
   elements.responseJson.textContent = JSON.stringify(payload, null, 2);
 }
@@ -254,7 +307,8 @@ async function generatePlan() {
       budget: settings.budget,
       top: settings.top,
       minScore: settings.minScore,
-      strategy: settings.strategy
+      strategy: settings.strategy,
+      packing: settings.packing
     };
 
     elements.tasksJson.value = JSON.stringify(tasks, null, 2);
@@ -297,7 +351,7 @@ async function generatePlan() {
       payload = window.AutopilotPlanner.planLocally(body);
     }
 
-    renderPlan(payload);
+    renderPlan(payload, tasks);
     setStatus(
       `Plan generated ${ranOnServer ? "by the service" : "in your browser"}. `
       + `Ranked ${payload.ranked.length} task(s).`,

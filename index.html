@@ -50,6 +50,13 @@
               <option value="urgency">Urgency</option>
             </select>
           </label>
+          <label>
+            Packing
+            <select id="packing-input">
+              <option value="optimal">Most value</option>
+              <option value="greedy">Best score first</option>
+            </select>
+          </label>
         </div>
         <div class="button-row">
           <button id="load-sample-btn" type="button">Load Sample Tasks</button>
@@ -109,6 +116,8 @@
           <p><span>Used Effort:</span> <strong id="metric-used">-</strong></p>
           <p><span>Strategy:</span> <strong id="metric-strategy">-</strong></p>
           <p><span>Ranked Tasks:</span> <strong id="metric-ranked">-</strong></p>
+          <p><span>Plan Value:</span> <strong id="metric-value">-</strong></p>
+          <p><span>Budget Left:</span> <strong id="metric-left">-</strong></p>
         </div>
 
         <h3>Ranked Tasks</h3>
@@ -141,6 +150,21 @@
               </tr>
             </thead>
             <tbody id="weekly-table-body"></tbody>
+          </table>
+        </div>
+
+        <h3>Left Out</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Project</th>
+                <th>Task</th>
+                <th>Effort</th>
+                <th>Why</th>
+              </tr>
+            </thead>
+            <tbody id="left-out-table-body"></tbody>
           </table>
         </div>
 

@@ -76,6 +76,13 @@ cd autopilot-ops-py
 python src/autopilot_ops.py --input data/tasks.sample.json --budget 8 --weeks 4
 ```
 
+Print Markdown instead of JSON, ready to paste into a standup note:
+
+```powershell
+cd autopilot-ops-py
+python src/autopilot_ops.py --input data/tasks.sample.json --budget 8 --weeks 2 --format markdown
+```
+
 Switch scoring strategy:
 
 ```powershell

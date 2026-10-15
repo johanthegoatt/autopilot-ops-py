@@ -15,6 +15,7 @@ from src.autopilot_ops import (
     parse_tasks,
     main,
     rank_tasks,
+    render_markdown,
     task_value,
 )
 
@@ -249,3 +250,21 @@ class RoadmapTests(unittest.TestCase):
 
     def test_single_week_payload_has_no_roadmap(self):
         self.assertNotIn("roadmap", build_plan_payload(self.tasks, effort_budget=8))
+
+
+class MarkdownTests(unittest.TestCase):
+    def test_markdown_lists_plan_and_later_weeks(self):
+        tasks = [TaskSignal("core", f"step {i}", 5 + i, 5, 1.0, 4.0) for i in range(3)]
+        text = render_markdown(build_plan_payload(tasks, effort_budget=8, weeks=2))
+        self.assertIn("## Weekly plan", text)
+        self.assertIn("| core | step 2 |", text)
+        self.assertIn("### Week 2", text)
+
+    def test_pipes_in_task_names_do_not_break_the_table(self):
+        tasks = [TaskSignal("core", "a | b", 5, 5, 1.0, 1.0)]
+        text = render_markdown(build_plan_payload(tasks, effort_budget=8))
+        self.assertIn("a \\| b", text)
+
+    def test_empty_plan_says_so(self):
+        tasks = [TaskSignal("core", "huge", 5, 5, 1.0, 40.0)]
+        self.assertIn("Nothing fits", render_markdown(build_plan_payload(tasks, effort_budget=8)))

@@ -343,6 +343,35 @@ def build_plan_payload(
     return payload
 
 
+def _markdown_table(rows: List[Dict[str, Any]]) -> List[str]:
+    lines = ["| Project | Task | Score | Effort |", "| --- | --- | ---: | ---: |"]
+    for row in rows:
+        task = str(row["task"]).replace("|", "\\|")
+        project = str(row["project"]).replace("|", "\\|")
+        lines.append(f"| {project} | {task} | {row['score']:.2f} | {row['effort']:g} |")
+    return lines
+
+
+def render_markdown(payload: Dict[str, Any]) -> str:
+    """The plan as Markdown, for pasting into a standup note or an issue."""
+    lines = [
+        "## Weekly plan",
+        "",
+        f"Budget {payload['budget']:g}, used {payload['usedEffort']:g}, "
+        f"value {payload['planValue']:.1f} ({payload['filters']['strategy']}, {payload['packing']} packing)",
+        "",
+    ]
+    if payload["weeklyPlan"]:
+        lines += _markdown_table(payload["weeklyPlan"])
+    else:
+        lines.append("Nothing fits this budget.")
+    for week in payload.get("roadmap", [])[1:]:
+        lines += ["", f"### Week {week['week']}", ""] + _markdown_table(week["tasks"])
+    if payload.get("unscheduled"):
+        lines += ["", f"{payload['unscheduled']} ranked task(s) do not fit in the roadmap."]
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build a high-leverage weekly engineering plan.")
     parser.add_argument("--input", required=True, help="Task file (.json or .csv), or - for stdin")
@@ -368,6 +397,12 @@ def main(argv: List[str] | None = None) -> int:
         default=1,
         help=f"Plan this many weeks ahead, each packed from what is left (1-{MAX_WEEKS})",
     )
+    parser.add_argument(
+        "--format",
+        default="json",
+        choices=("json", "markdown"),
+        help="json for tools, markdown for pasting into notes",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -388,7 +423,7 @@ def main(argv: List[str] | None = None) -> int:
     except ValueError as error:
         parser.exit(2, f"error: {error}\n")
 
-    text = json.dumps(payload, indent=2)
+    text = render_markdown(payload).rstrip("\n") if args.format == "markdown" else json.dumps(payload, indent=2)
     if args.output:
         Path(args.output).write_text(text + "\n", encoding="utf-8")
         print(f"Plan written to {args.output}")

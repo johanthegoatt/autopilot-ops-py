@@ -360,6 +360,7 @@ async function generatePlan() {
     // the same payload shape, so nothing downstream has to care which ran.
     let payload = null;
     let ranOnServer = false;
+    let rejection = null;
 
     try {
       const response = await fetch("/api/plan", {
@@ -375,13 +376,14 @@ async function generatePlan() {
       } else if (response.status >= 400 && response.status < 500 && response.status !== 404) {
         // A 4xx that is not "no such endpoint" means the service rejected this
         // input. Computing it locally would hide a real validation error.
-        throw new Error(parsed?.error || parsed?.detail || `Request failed with status ${response.status}.`);
+        rejection = parsed?.error || parsed?.detail || `Request failed with status ${response.status}.`;
       }
-    } catch (networkError) {
-      if (networkError instanceof Error && networkError.message.startsWith("Request failed")) {
-        throw networkError;
-      }
+    } catch {
       // Offline, blocked, or no service. Fall through.
+    }
+
+    if (rejection) {
+      throw new Error(typeof rejection === "string" ? rejection : JSON.stringify(rejection));
     }
 
     if (!payload) {

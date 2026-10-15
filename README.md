@@ -47,6 +47,14 @@ cd autopilot-ops-py
 python src/autopilot_ops.py --input data/tasks.sample.json --budget 18 --output data/plan.out.json
 ```
 
+Plan straight from a spreadsheet export (header names the six fields, any order) or from stdin:
+
+```powershell
+cd autopilot-ops-py
+python src/autopilot_ops.py --input backlog.csv --budget 18
+type backlog.csv | python src/autopilot_ops.py --input - --budget 18
+```
+
 Filter to top candidates:
 
 ```powershell

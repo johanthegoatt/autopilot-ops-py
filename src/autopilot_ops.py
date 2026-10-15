@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
+import sys
 import math
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -191,8 +194,33 @@ def _confidence(item: dict, index: int) -> float:
 
 
 def parse_tasks(path: Path) -> List[TaskSignal]:
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    return parse_task_payload(raw)
+    text = sys.stdin.read() if str(path) == "-" else path.read_text(encoding="utf-8-sig")
+    if path.suffix.lower() == ".csv" or (str(path) == "-" and _looks_like_csv(text)):
+        return parse_task_payload(parse_csv_rows(text))
+    return parse_task_payload(json.loads(text))
+
+
+def _looks_like_csv(text: str) -> bool:
+    stripped = text.lstrip()
+    return bool(stripped) and stripped[0] not in "[{"
+
+
+def parse_csv_rows(text: str) -> List[dict]:
+    """Read a spreadsheet export: a header row naming the six fields, any order, any case."""
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise ValueError("CSV input has no header row.")
+    header = {name: (name or "").strip().lower() for name in reader.fieldnames}
+    missing = [field for field in REQUIRED_FIELDS if field not in header.values()]
+    if missing:
+        raise ValueError(f"CSV header is missing: {', '.join(missing)}.")
+    rows = []
+    for row in reader:
+        cleaned = {header[key]: (value or "").strip() for key, value in row.items() if key in header}
+        if not any(cleaned.values()):
+            continue
+        rows.append(cleaned)
+    return rows
 
 
 def parse_task_payload(raw: object) -> List[TaskSignal]:
@@ -269,7 +297,7 @@ def build_plan_payload(
 
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build a high-leverage weekly engineering plan.")
-    parser.add_argument("--input", required=True, help="Path to task signal JSON file")
+    parser.add_argument("--input", required=True, help="Task file (.json or .csv), or - for stdin")
     parser.add_argument("--budget", type=float, default=20.0, help="Max effort budget")
     parser.add_argument("--output", default="", help="Optional output JSON file")
     parser.add_argument("--top", type=int, default=0, help="Keep only top N ranked tasks (0 keeps all)")

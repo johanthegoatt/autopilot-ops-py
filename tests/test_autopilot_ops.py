@@ -176,3 +176,36 @@ class CliErrorTests(unittest.TestCase):
         tasks = [TaskSignal("p", "t", 1, 1, 1, 1)]
         with self.assertRaises(ValueError):
             build_plan_payload(tasks, effort_budget=-1)
+
+
+class CsvInputTests(unittest.TestCase):
+    def test_csv_header_order_and_case_do_not_matter(self):
+        text = "Effort,Task,PROJECT,impact,urgency,confidence\n3,ship it,core,8,7,80\n\n"
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "tasks.csv"
+            path.write_text(text, encoding="utf-8")
+            tasks = parse_tasks(path)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].project, "core")
+        self.assertAlmostEqual(tasks[0].confidence, 0.8)
+        self.assertEqual(tasks[0].effort, 3.0)
+
+    def test_csv_missing_column_is_named(self):
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "tasks.csv"
+            path.write_text("project,task,impact\na,b,1\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "urgency, confidence, effort"):
+                parse_tasks(path)
+
+    def test_csv_bad_number_reports_row(self):
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "tasks.csv"
+            path.write_text("project,task,impact,urgency,confidence,effort\na,b,high,1,1,1\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "index 0: 'impact' must be a number"):
+                parse_tasks(path)
+
+    def test_excel_bom_is_ignored(self):
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "tasks.csv"
+            path.write_bytes("\ufeffproject,task,impact,urgency,confidence,effort\na,b,1,1,1,1\n".encode("utf-8"))
+            self.assertEqual(parse_tasks(path)[0].project, "a")

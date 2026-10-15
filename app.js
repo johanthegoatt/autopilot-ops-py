@@ -416,6 +416,7 @@ async function loadSampleTasks() {
     renderTaskRows(tasks);
     elements.tasksJson.value = JSON.stringify(tasks, null, 2);
     setStatus(`Loaded ${tasks.length} sample task(s).`, "success");
+    saveDraft();
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Failed to load sample tasks.", "error");
   }
@@ -465,10 +466,64 @@ function wireEvents() {
   elements.generate.addEventListener("click", generatePlan);
 }
 
+const DRAFT_KEY = "autopilot-ops:draft:v1";
+const SETTING_FIELDS = ["budget", "top", "minScore", "strategy", "packing", "weeks"];
+let saveTimer = 0;
+
+// Rows are stored as typed, unvalidated, so a half-filled row survives a reload.
+function readDraftRows() {
+  return Array.from(elements.taskBody.querySelectorAll("tr"))
+    .map((row) => {
+      const entry = {};
+      for (const field of REQUIRED_TASK_FIELDS) {
+        entry[field] = row.querySelector(`input[data-key="${field}"]`)?.value ?? "";
+      }
+      return entry;
+    })
+    .filter((entry) => REQUIRED_TASK_FIELDS.some((field) => String(entry[field]).trim() !== ""));
+}
+
+function saveDraft() {
+  window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(() => {
+    const settings = Object.fromEntries(SETTING_FIELDS.map((field) => [field, elements[field].value]));
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ tasks: readDraftRows(), settings }));
+    } catch {
+      // Private mode or full storage: the planner still works, it just forgets.
+    }
+  }, 250);
+}
+
+function restoreDraft() {
+  let draft = null;
+  try {
+    draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+  } catch {
+    draft = null;
+  }
+  if (!draft || typeof draft !== "object") return false;
+
+  for (const field of SETTING_FIELDS) {
+    const value = draft.settings?.[field];
+    if (typeof value === "string" && value !== "") elements[field].value = value;
+  }
+  const tasks = Array.isArray(draft.tasks) ? draft.tasks.filter((task) => task && typeof task === "object") : [];
+  renderTaskRows(tasks.map((task) => ({ ...emptyTask(), ...task })));
+  return tasks.length > 0;
+}
+
 function init() {
-  renderTaskRows([]);
+  const restored = restoreDraft();
+  if (!restored) renderTaskRows([]);
   wireEvents();
-  setStatus("Add tasks manually or load the sample set.", "");
+  elements.taskBody.addEventListener("input", saveDraft);
+  elements.taskBody.addEventListener("click", saveDraft);
+  for (const field of SETTING_FIELDS) elements[field].addEventListener("change", saveDraft);
+  for (const button of [elements.addTask, elements.clearTasks, elements.jsonToForm]) {
+    button.addEventListener("click", () => window.setTimeout(saveDraft, 0));
+  }
+  setStatus(restored ? "Restored your last task list." : "Add tasks manually or load the sample set.", "");
 }
 
 init();

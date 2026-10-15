@@ -234,6 +234,12 @@ def build_plan_payload(
 ) -> Dict[str, Any]:
     if strategy not in VALID_STRATEGIES:
         raise ValueError(f"Unknown strategy '{strategy}'. Valid strategies: {', '.join(VALID_STRATEGIES)}")
+    if not math.isfinite(effort_budget) or effort_budget < 0:
+        raise ValueError("Budget must be a finite number of hours, 0 or more.")
+    if not math.isfinite(min_score):
+        raise ValueError("Minimum score must be a finite number.")
+    if top < 0:
+        raise ValueError("Top must be 0 (keep all) or a positive count.")
 
     ranked = rank_tasks(tasks, strategy=strategy)
     filtered = filter_ranked_tasks(
@@ -261,7 +267,7 @@ def build_plan_payload(
     }
 
 
-def main() -> int:
+def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build a high-leverage weekly engineering plan.")
     parser.add_argument("--input", required=True, help="Path to task signal JSON file")
     parser.add_argument("--budget", type=float, default=20.0, help="Max effort budget")
@@ -280,17 +286,24 @@ def main() -> int:
         choices=VALID_PACKINGS,
         help="optimal fits the most value into the budget, greedy takes tasks in score order",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    tasks = parse_tasks(Path(args.input))
-    payload = build_plan_payload(
-        tasks,
-        effort_budget=args.budget,
-        top=args.top,
-        min_score=args.min_score,
-        strategy=args.strategy,
-        packing=args.packing,
-    )
+    try:
+        tasks = parse_tasks(Path(args.input))
+        payload = build_plan_payload(
+            tasks,
+            effort_budget=args.budget,
+            top=args.top,
+            min_score=args.min_score,
+            strategy=args.strategy,
+            packing=args.packing,
+        )
+    except FileNotFoundError:
+        parser.exit(2, f"error: input file not found: {args.input}\n")
+    except json.JSONDecodeError as error:
+        parser.exit(2, f"error: {args.input} is not valid JSON (line {error.lineno}, column {error.colno})\n")
+    except ValueError as error:
+        parser.exit(2, f"error: {error}\n")
 
     text = json.dumps(payload, indent=2)
     if args.output:

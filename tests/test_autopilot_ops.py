@@ -1,3 +1,5 @@
+import contextlib
+import io
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,6 +12,7 @@ from src.autopilot_ops import (
     leverage_score,
     parse_task_payload,
     parse_tasks,
+    main,
     rank_tasks,
     task_value,
 )
@@ -140,3 +143,36 @@ class AutopilotOpsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CliErrorTests(unittest.TestCase):
+    def run_cli(self, *argv):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+            main(list(argv))
+        return raised.exception.code, stderr.getvalue()
+
+    def test_missing_file_is_a_one_line_error(self):
+        code, message = self.run_cli("--input", "does-not-exist.json")
+        self.assertEqual(code, 2)
+        self.assertIn("input file not found", message)
+        self.assertNotIn("Traceback", message)
+
+    def test_broken_json_names_the_position(self):
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "tasks.json"
+            path.write_text('[{"project": "a",', encoding="utf-8")
+            code, message = self.run_cli("--input", str(path))
+        self.assertEqual(code, 2)
+        self.assertIn("not valid JSON (line 1", message)
+
+    def test_nan_budget_is_rejected(self):
+        sample = Path(__file__).resolve().parent.parent / "data" / "tasks.sample.json"
+        code, message = self.run_cli("--input", str(sample), "--budget", "nan")
+        self.assertEqual(code, 2)
+        self.assertIn("Budget must be a finite number", message)
+
+    def test_negative_budget_is_rejected_by_the_payload_builder(self):
+        tasks = [TaskSignal("p", "t", 1, 1, 1, 1)]
+        with self.assertRaises(ValueError):
+            build_plan_payload(tasks, effort_budget=-1)

@@ -57,6 +57,10 @@
               <option value="greedy">Best score first</option>
             </select>
           </label>
+          <label>
+            Weeks
+            <input id="weeks-input" type="number" min="1" max="52" step="1" value="1" />
+          </label>
         </div>
         <div class="button-row">
           <button id="load-sample-btn" type="button">Load Sample Tasks</button>
@@ -152,6 +156,12 @@
             <tbody id="weekly-table-body"></tbody>
           </table>
         </div>
+
+        <section id="roadmap-section" hidden>
+          <h3>Roadmap</h3>
+          <p id="roadmap-summary" class="roadmap-summary"></p>
+          <ol id="roadmap-list" class="roadmap"></ol>
+        </section>
 
         <h3>Left Out</h3>
         <div class="table-wrap">

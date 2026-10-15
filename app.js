@@ -8,6 +8,10 @@ const elements = {
   minScore: document.getElementById("min-score-input"),
   strategy: document.getElementById("strategy-input"),
   packing: document.getElementById("packing-input"),
+  weeks: document.getElementById("weeks-input"),
+  roadmapSection: document.getElementById("roadmap-section"),
+  roadmapSummary: document.getElementById("roadmap-summary"),
+  roadmapList: document.getElementById("roadmap-list"),
   loadSample: document.getElementById("load-sample-btn"),
   generate: document.getElementById("generate-btn"),
   addTask: document.getElementById("add-task-btn"),
@@ -188,6 +192,7 @@ function parsePlannerSettings() {
   const minScore = Number(elements.minScore.value);
   const strategy = String(elements.strategy.value || "").trim();
   const packing = elements.packing.value === "greedy" ? "greedy" : "optimal";
+  const weeks = Number(elements.weeks.value || 1);
 
   if (!Number.isFinite(budget)) {
     throw new Error("Budget must be a valid number.");
@@ -202,7 +207,11 @@ function parsePlannerSettings() {
     throw new Error("Strategy must be balanced, impact, or urgency.");
   }
 
-  return { budget, top, minScore, strategy, packing };
+  if (!Number.isInteger(weeks) || weeks < 1 || weeks > 52) {
+    throw new Error("Weeks must be a whole number from 1 to 52.");
+  }
+
+  return { budget, top, minScore, strategy, packing, weeks };
 }
 
 function renderRows(targetBody, rows, fields) {
@@ -295,7 +304,37 @@ function renderPlan(payload, submitted = []) {
   renderRows(elements.weeklyBody, weeklyRows, ["project", "task", "score", "effort"]);
   renderRows(elements.leftOutBody, leftOutRows(submitted, payload), ["project", "task", "effort", "why"]);
 
+  renderRoadmap(payload);
   elements.responseJson.textContent = JSON.stringify(payload, null, 2);
+}
+
+function renderRoadmap(payload) {
+  const weeks = Array.isArray(payload.roadmap) ? payload.roadmap : null;
+  elements.roadmapSection.hidden = !weeks;
+  if (!weeks) return;
+
+  elements.roadmapList.replaceChildren(
+    ...weeks.map((week) => {
+      const item = document.createElement("li");
+      const heading = document.createElement("strong");
+      heading.textContent = `Week ${week.week}`;
+      const meta = document.createElement("span");
+      meta.className = "roadmap-meta";
+      meta.textContent = `${week.usedEffort} effort, value ${Number(week.value).toFixed(1)}`;
+      const tasks = document.createElement("ul");
+      for (const task of week.tasks) {
+        const entry = document.createElement("li");
+        entry.textContent = `${task.project}: ${task.task} (${task.effort})`;
+        tasks.appendChild(entry);
+      }
+      item.append(heading, meta, tasks);
+      return item;
+    })
+  );
+  const unscheduled = Number(payload.unscheduled) || 0;
+  elements.roadmapSummary.textContent = unscheduled
+    ? `${unscheduled} ranked task(s) do not fit in ${weeks.length || "any"} week(s) at this budget.`
+    : `Every ranked task is scheduled within ${weeks.length} week(s).`;
 }
 
 async function generatePlan() {
@@ -308,7 +347,8 @@ async function generatePlan() {
       top: settings.top,
       minScore: settings.minScore,
       strategy: settings.strategy,
-      packing: settings.packing
+      packing: settings.packing,
+      weeks: settings.weeks
     };
 
     elements.tasksJson.value = JSON.stringify(tasks, null, 2);

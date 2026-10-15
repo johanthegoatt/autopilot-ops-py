@@ -69,6 +69,13 @@ cd autopilot-ops-py
 python src/autopilot_ops.py --input data/tasks.sample.json --budget 5 --packing greedy
 ```
 
+Lay out the next few weeks, each packed from what the earlier weeks left:
+
+```powershell
+cd autopilot-ops-py
+python src/autopilot_ops.py --input data/tasks.sample.json --budget 8 --weeks 4
+```
+
 Switch scoring strategy:
 
 ```powershell

@@ -159,11 +159,25 @@
     return { selected, used };
   }
 
+  /** Python: build_roadmap. Week after week from what is left. */
+  function buildRoadmap(tasks, budget, weeks, strategy = "balanced", packing = "optimal") {
+    let remaining = rankTasks(tasks, strategy);
+    const schedule = [];
+    for (let week = 0; week < weeks && remaining.length; week++) {
+      const { selected } = buildWeeklyPlan(remaining, budget, strategy, packing);
+      if (!selected.length) break;
+      schedule.push(selected);
+      const taken = new Set(selected);
+      remaining = remaining.filter((task) => !taken.has(task));
+    }
+    return schedule;
+  }
+
   /**
    * Builds the same payload shape /api/plan returns, so the renderer does not
    * need to know which one produced it.
    */
-  function planLocally({ tasks, budget, top, minScore, strategy, packing }) {
+  function planLocally({ tasks, budget, top, minScore, strategy, packing, weeks = 1 }) {
     const useStrategy = VALID_STRATEGIES.includes(strategy) ? strategy : "balanced";
     const usePacking = VALID_PACKINGS.includes(packing) ? packing : "optimal";
   
@@ -178,7 +192,7 @@
     const packingUsed = planPacking(ranked.length, budget, usePacking);
     const { selected, used } = buildWeeklyPlan(ranked, budget, useStrategy, packingUsed);
   
-    return {
+    const payload = {
       budget: Number(budget) || 0,
       usedEffort: Number(used.toFixed(2)),
       planValue: Number(selected.reduce((n, t) => n + taskValue(t, useStrategy), 0).toFixed(4)),
@@ -188,9 +202,22 @@
       weeklyPlan: selected.map(withScores),
       computedIn: "browser"
     };
+
+    const weekCount = Math.min(Math.max(Math.trunc(Number(weeks) || 1), 1), 52);
+    if (weekCount > 1) {
+      const schedule = buildRoadmap(ranked, budget, weekCount, useStrategy, packingUsed);
+      payload.roadmap = schedule.map((week, index) => ({
+        week: index + 1,
+        tasks: week.map(withScores),
+        usedEffort: Number(week.reduce((n, t) => n + normalizedEffort(t.effort), 0).toFixed(2)),
+        value: Number(week.reduce((n, t) => n + taskValue(t, useStrategy), 0).toFixed(4))
+      }));
+      payload.unscheduled = ranked.length - schedule.reduce((n, week) => n + week.length, 0);
+    }
+    return payload;
   }
 
   global.AutopilotPlanner = {
-    leverageScore, taskValue, rankTasks, filterRanked, planPacking, buildWeeklyPlan, planLocally
+    leverageScore, taskValue, rankTasks, filterRanked, planPacking, buildWeeklyPlan, buildRoadmap, planLocally
   };
 })(window);

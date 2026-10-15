@@ -160,6 +160,39 @@ def build_weekly_plan(
     return _optimal_plan(ranked, safe_budget, strategy)
 
 
+MAX_WEEKS = 52
+
+
+def build_roadmap(
+    tasks: Iterable[TaskSignal],
+    effort_budget: float,
+    weeks: int,
+    strategy: str = "balanced",
+    packing: str = "optimal",
+) -> List[List[TaskSignal]]:
+    """Pack week after week from what is left, so week 1 is the weekly plan
+    and later weeks take the best of the remainder."""
+    remaining = rank_tasks(tasks, strategy=strategy)
+    schedule: List[List[TaskSignal]] = []
+    for _ in range(weeks):
+        if not remaining:
+            break
+        week = build_weekly_plan(remaining, effort_budget, strategy=strategy, packing=packing)
+        if not week:
+            break
+        schedule.append(week)
+        # Remove by identity so duplicate rows are scheduled once each.
+        taken = [id(task) for task in week]
+        kept: List[TaskSignal] = []
+        for task in remaining:
+            if id(task) in taken:
+                taken.remove(id(task))
+            else:
+                kept.append(task)
+        remaining = kept
+    return schedule
+
+
 def _require(item: dict, field: str, index: int) -> object:
     if field not in item:
         raise ValueError(f"Task at index {index} is missing required field '{field}'.")
@@ -259,6 +292,7 @@ def build_plan_payload(
     min_score: float = 0.0,
     strategy: str = "balanced",
     packing: str = "optimal",
+    weeks: int = 1,
 ) -> Dict[str, Any]:
     if strategy not in VALID_STRATEGIES:
         raise ValueError(f"Unknown strategy '{strategy}'. Valid strategies: {', '.join(VALID_STRATEGIES)}")
@@ -268,6 +302,8 @@ def build_plan_payload(
         raise ValueError("Minimum score must be a finite number.")
     if top < 0:
         raise ValueError("Top must be 0 (keep all) or a positive count.")
+    if not 1 <= weeks <= MAX_WEEKS:
+        raise ValueError(f"Weeks must be between 1 and {MAX_WEEKS}.")
 
     ranked = rank_tasks(tasks, strategy=strategy)
     filtered = filter_ranked_tasks(
@@ -276,23 +312,35 @@ def build_plan_payload(
     packing_used = plan_packing(len(filtered), effort_budget, packing)
     weekly_plan = build_weekly_plan(filtered, effort_budget, strategy=strategy, packing=packing_used)
 
-    return {
+    def row(task: TaskSignal) -> Dict[str, Any]:
+        return {**asdict(task), "score": round(leverage_score(task, strategy=strategy), 4)}
+
+    payload: Dict[str, Any] = {
         "budget": effort_budget,
         "filters": {"top": top, "minScore": min_score, "strategy": strategy},
         "packing": packing_used,
-        "ranked": [
-            {**asdict(task), "score": round(leverage_score(task, strategy=strategy), 4)}
-            for task in filtered
-        ],
-        "weeklyPlan": [
-            {**asdict(task), "score": round(leverage_score(task, strategy=strategy), 4)}
-            for task in weekly_plan
-        ],
+        "ranked": [row(task) for task in filtered],
+        "weeklyPlan": [row(task) for task in weekly_plan],
         # Count effort the way the packer did, floor included, or a plan of
         # zero-effort tasks reports 0 used while it has spent the budget.
         "usedEffort": round(sum(_normalized_effort(task.effort) for task in weekly_plan), 2),
         "planValue": round(sum(task_value(task, strategy) for task in weekly_plan), 4),
     }
+
+    if weeks > 1:
+        schedule = build_roadmap(filtered, effort_budget, weeks, strategy=strategy, packing=packing_used)
+        payload["roadmap"] = [
+            {
+                "week": number,
+                "tasks": [row(task) for task in week],
+                "usedEffort": round(sum(_normalized_effort(task.effort) for task in week), 2),
+                "value": round(sum(task_value(task, strategy) for task in week), 4),
+            }
+            for number, week in enumerate(schedule, start=1)
+        ]
+        payload["unscheduled"] = len(filtered) - sum(len(week) for week in schedule)
+
+    return payload
 
 
 def main(argv: List[str] | None = None) -> int:
@@ -314,6 +362,12 @@ def main(argv: List[str] | None = None) -> int:
         choices=VALID_PACKINGS,
         help="optimal fits the most value into the budget, greedy takes tasks in score order",
     )
+    parser.add_argument(
+        "--weeks",
+        type=int,
+        default=1,
+        help=f"Plan this many weeks ahead, each packed from what is left (1-{MAX_WEEKS})",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -325,6 +379,7 @@ def main(argv: List[str] | None = None) -> int:
             min_score=args.min_score,
             strategy=args.strategy,
             packing=args.packing,
+            weeks=args.weeks,
         )
     except FileNotFoundError:
         parser.exit(2, f"error: input file not found: {args.input}\n")

@@ -28,6 +28,7 @@ class PlanRequest(BaseModel):
     minScore: float = 0.0
     strategy: Literal["balanced", "impact", "urgency"] = "balanced"
     packing: Literal["optimal", "greedy"] = "optimal"
+    weeks: int = Field(default=1, ge=1, le=52)
 
     model_config = {"extra": "forbid"}
 
@@ -58,6 +59,7 @@ def generate_plan(payload: PlanRequest):
             min_score=payload.minScore,
             strategy=payload.strategy,
             packing=payload.packing,
+            weeks=payload.weeks,
         )
     except ValueError as error:
         return JSONResponse(status_code=400, content={"error": str(error)})

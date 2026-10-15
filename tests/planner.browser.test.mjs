@@ -130,3 +130,18 @@ test("the optimal plan matches brute force on random task sets", () => {
     assert.ok(Math.abs(selected.reduce((n, t) => n + taskValue(t), 0) - best) < 1e-6, `round ${round}`);
   }
 });
+
+test("roadmap matches the Python schedule week for week", () => {
+  // python src/autopilot_ops.py --input data/tasks.sample.json --budget 8 --weeks 4
+  const payload = planLocally({ tasks: TASKS, budget: 8, top: 0, minScore: 0, strategy: "balanced", weeks: 4 });
+  assert.deepEqual(
+    payload.roadmap.map((week) => week.tasks.map((task) => task.project)),
+    [["workflow-cli-kit", "portfolio"], ["timecapsule-vault"], ["globe-control"]]
+  );
+  assert.equal(payload.unscheduled, 0);
+});
+
+test("a one-week plan carries no roadmap", () => {
+  const payload = planLocally({ tasks: TASKS, budget: 8, top: 0, minScore: 0, strategy: "balanced" });
+  assert.equal(payload.roadmap, undefined);
+});

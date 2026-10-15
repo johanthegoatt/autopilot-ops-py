@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from src.autopilot_ops import (
     TaskSignal,
     build_plan_payload,
+    build_roadmap,
     build_weekly_plan,
     filter_ranked_tasks,
     leverage_score,
@@ -209,3 +210,42 @@ class CsvInputTests(unittest.TestCase):
             path = Path(folder) / "tasks.csv"
             path.write_bytes("\ufeffproject,task,impact,urgency,confidence,effort\na,b,1,1,1,1\n".encode("utf-8"))
             self.assertEqual(parse_tasks(path)[0].project, "a")
+
+
+class RoadmapTests(unittest.TestCase):
+    def setUp(self):
+        self.tasks = [TaskSignal("p", f"t{i}", 5 + i, 5, 1.0, 4.0) for i in range(5)]
+
+    def test_week_one_matches_the_weekly_plan(self):
+        payload = build_plan_payload(self.tasks, effort_budget=8, weeks=3)
+        week_one = [row["task"] for row in payload["roadmap"][0]["tasks"]]
+        self.assertEqual(week_one, [row["task"] for row in payload["weeklyPlan"]])
+
+    def test_every_task_lands_in_exactly_one_week(self):
+        schedule = build_roadmap(self.tasks, 8, weeks=4)
+        names = [task.task for week in schedule for task in week]
+        self.assertEqual(sorted(names), sorted(task.task for task in self.tasks))
+        self.assertEqual(len(schedule), 3)
+
+    def test_unscheduled_counts_what_did_not_fit_in_time(self):
+        payload = build_plan_payload(self.tasks, effort_budget=8, weeks=2)
+        self.assertEqual(len(payload["roadmap"]), 2)
+        self.assertEqual(payload["unscheduled"], 1)
+
+    def test_tasks_bigger_than_a_week_stop_the_roadmap(self):
+        tasks = [TaskSignal("p", "huge", 9, 9, 1.0, 50.0)]
+        payload = build_plan_payload(tasks, effort_budget=8, weeks=3)
+        self.assertEqual(payload["roadmap"], [])
+        self.assertEqual(payload["unscheduled"], 1)
+
+    def test_duplicate_rows_are_both_scheduled(self):
+        tasks = [TaskSignal("p", "same", 5, 5, 1.0, 4.0), TaskSignal("p", "same", 5, 5, 1.0, 4.0)]
+        schedule = build_roadmap(tasks, 4, weeks=2)
+        self.assertEqual([len(week) for week in schedule], [1, 1])
+
+    def test_weeks_out_of_range_is_rejected(self):
+        with self.assertRaises(ValueError):
+            build_plan_payload(self.tasks, effort_budget=8, weeks=0)
+
+    def test_single_week_payload_has_no_roadmap(self):
+        self.assertNotIn("roadmap", build_plan_payload(self.tasks, effort_budget=8))

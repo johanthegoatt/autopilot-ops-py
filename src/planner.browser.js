@@ -217,7 +217,42 @@
     return payload;
   }
 
+  // Python's :g drops trailing zeros; toString does the same for these ranges.
+  const g = (value) => String(Number(value));
+
+  function markdownTable(rows) {
+    const lines = ["| Project | Task | Score | Effort |", "| --- | --- | ---: | ---: |"];
+    for (const row of rows) {
+      const project = String(row.project).replace(/\|/g, "\\|");
+      const task = String(row.task).replace(/\|/g, "\\|");
+      lines.push(`| ${project} | ${task} | ${Number(row.score).toFixed(2)} | ${g(row.effort)} |`);
+    }
+    return lines;
+  }
+
+  /** Python: render_markdown. */
+  function renderMarkdown(payload) {
+    let lines = [
+      "## Weekly plan",
+      "",
+      `Budget ${g(payload.budget)}, used ${g(payload.usedEffort)}, `
+        + `value ${Number(payload.planValue).toFixed(1)} (${payload.filters.strategy}, ${payload.packing} packing)`,
+      ""
+    ];
+    lines = payload.weeklyPlan.length
+      ? lines.concat(markdownTable(payload.weeklyPlan))
+      : lines.concat("Nothing fits this budget.");
+    for (const week of (payload.roadmap || []).slice(1)) {
+      lines = lines.concat("", `### Week ${week.week}`, "", markdownTable(week.tasks));
+    }
+    if (payload.unscheduled) {
+      lines.push("", `${payload.unscheduled} ranked task(s) do not fit in the roadmap.`);
+    }
+    return lines.join("\n") + "\n";
+  }
+
   global.AutopilotPlanner = {
+    renderMarkdown,
     leverageScore, taskValue, rankTasks, filterRanked, planPacking, buildWeeklyPlan, buildRoadmap, planLocally
   };
 })(window);

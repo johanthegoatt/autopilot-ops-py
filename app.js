@@ -9,6 +9,7 @@ const elements = {
   strategy: document.getElementById("strategy-input"),
   packing: document.getElementById("packing-input"),
   weeks: document.getElementById("weeks-input"),
+  copyMarkdown: document.getElementById("copy-markdown-btn"),
   roadmapSection: document.getElementById("roadmap-section"),
   roadmapSummary: document.getElementById("roadmap-summary"),
   roadmapList: document.getElementById("roadmap-list"),
@@ -305,7 +306,23 @@ function renderPlan(payload, submitted = []) {
   renderRows(elements.leftOutBody, leftOutRows(submitted, payload), ["project", "task", "effort", "why"]);
 
   renderRoadmap(payload);
+  lastPayload = payload;
+  elements.copyMarkdown.disabled = false;
   elements.responseJson.textContent = JSON.stringify(payload, null, 2);
+}
+
+let lastPayload = null;
+
+async function copyPlanMarkdown() {
+  if (!lastPayload || !window.AutopilotPlanner) return;
+  const text = window.AutopilotPlanner.renderMarkdown(lastPayload);
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus("Plan copied as Markdown.", "success");
+  } catch {
+    elements.responseJson.textContent = text;
+    setStatus("Clipboard blocked; the Markdown is in the raw response box.", "error");
+  }
 }
 
 function renderRoadmap(payload) {
@@ -464,6 +481,7 @@ function wireEvents() {
 
   elements.loadSample.addEventListener("click", loadSampleTasks);
   elements.generate.addEventListener("click", generatePlan);
+  elements.copyMarkdown.addEventListener("click", copyPlanMarkdown);
 }
 
 const DRAFT_KEY = "autopilot-ops:draft:v1";

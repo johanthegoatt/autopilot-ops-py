@@ -145,3 +145,28 @@ test("a one-week plan carries no roadmap", () => {
   const payload = planLocally({ tasks: TASKS, budget: 8, top: 0, minScore: 0, strategy: "balanced" });
   assert.equal(payload.roadmap, undefined);
 });
+
+test("markdown export is byte-for-byte the Python --format markdown", () => {
+  // python src/autopilot_ops.py --input data/tasks.sample.json --budget 8 --weeks 2 --format markdown
+  const expected = [
+    "## Weekly plan",
+    "",
+    "Budget 8, used 7.3, value 43.8 (balanced, optimal packing)",
+    "",
+    "| Project | Task | Score | Effort |",
+    "| --- | --- | ---: | ---: |",
+    "| workflow-cli-kit | Add runbook lint command | 7.33 | 2.8 |",
+    "| portfolio | Refine project storytelling and visuals | 5.18 | 4.5 |",
+    "",
+    "### Week 2",
+    "",
+    "| Project | Task | Score | Effort |",
+    "| --- | --- | ---: | ---: |",
+    "| timecapsule-vault | Add key rotation support | 3.34 | 6 |",
+    "",
+    "1 ranked task(s) do not fit in the roadmap.",
+    ""
+  ].join("\n");
+  const payload = planLocally({ tasks: TASKS, budget: 8, top: 0, minScore: 0, strategy: "balanced", weeks: 2 });
+  assert.equal(globalThis.AutopilotPlanner.renderMarkdown(payload), expected);
+});
